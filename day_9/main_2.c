@@ -4,6 +4,11 @@
 #include <stdint.h>
 #include <inttypes.h>
 
+#define GLFW_INCLUDE_NONE
+#include <GLFW/glfw3.h>
+#define GLAD_GL_IMPLEMENTATION
+#include "gl.h"
+
 typedef struct vector2 {
 	int x;
 	int y;
@@ -14,6 +19,12 @@ typedef struct vector3 {
 	int y;
 	int z;
 } vec3;
+
+typedef struct fvec3 {
+	float x;
+	float y;
+	float z;
+} fvec3;
 
 typedef struct area {
 	size_t area;
@@ -63,15 +74,10 @@ int is_inside(vec3* v_fields, size_t n_v, vec3* h_fields, size_t n_h, vec2 point
 		if(v_fields[i].x > point.x)
 			break;
 		if(point.x == v_fields[i].x && point.y >= v_fields[i].y && point.y <= v_fields[i].z)
-		{
 			return 1;
-		}
 		
 		if(point.y >= v_fields[i].y && point.y < v_fields[i].z)
-		{
-			// intersects with line so it must exist
 			++p_1;
-		}
 	}
 
 	int p_2 = 0;
@@ -80,14 +86,10 @@ int is_inside(vec3* v_fields, size_t n_v, vec3* h_fields, size_t n_h, vec2 point
 		if(h_fields[i].x > point.y)
 			break;
 		if(point.y == h_fields[i].x && point.x >= h_fields[i].y && point.x <= h_fields[i].z)
-		{
 			return 1;
-		}
 		
 		if(point.x >= h_fields[i].y && point.x < h_fields[i].z)
-		{
 			++p_2;
-		}
 	}
 
 	return ((p_1 % 2) == 1) && ((p_2 % 2) == 1);
@@ -96,7 +98,7 @@ int is_inside(vec3* v_fields, size_t n_v, vec3* h_fields, size_t n_h, vec2 point
 // sweeping check for vertical/horizontal lines inside area
 int v_intersect(vec3* v_fields, size_t n_v, vec2 point, int min_y, int max_y)
 {
-	// assume point is min x -> max x
+	/* assume point is min x -> max x
 	int begin = 0;
 	for(int i = 0; i < n_v; i++)
 	{
@@ -106,10 +108,11 @@ int v_intersect(vec3* v_fields, size_t n_v, vec2 point, int min_y, int max_y)
 			break;
 		}
 	}
+	*/
 
-	for(int i = begin; i < n_v; i++)
+	for(int i = 0; i < n_v; i++)
 	{
-		if(v_fields[i].x == point.x)
+		if(v_fields[i].x <= point.x)
 			continue;
 		if(v_fields[i].x >= point.y)
 			return 0;
@@ -129,6 +132,24 @@ int v_intersect(vec3* v_fields, size_t n_v, vec2 point, int min_y, int max_y)
 
 	return 0;
 }
+
+const char* v_shader = 
+	"#version 330 core\n"
+	"layout (location = 0) in vec3 vPos;\n"
+	"uniform mat4 uProj;\n"
+	"\n"
+	"void main() {\n"
+	"	gl_Position = uProj * vec4(vPos, 1.0);"
+	"}\n";
+const char* f_shader = 
+	"#version 330 core\n"
+	"out vec4 FragColor;\n"
+	"uniform vec4 uColor;\n"
+	"\n"
+	"void main() {\n"
+	"	FragColor = uColor;\n"
+	"}\n";
+
 
 int main()
 {
@@ -175,6 +196,18 @@ int main()
 ////////////////////////////////////////////
 ////////////////////////////////////////////
 
+	glfwInit();
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+	GLFWwindow* window = glfwCreateWindow(640, 480, "test", NULL, NULL);
+	glfwMakeContextCurrent(window);
+	gladLoadGL(glfwGetProcAddress);
+
+////////////////////////////////////////////
+////////////////////////////////////////////
+////////////////////////////////////////////
+
 	// build arrays
 	vec3* h_fields = malloc(1);
 	vec3* v_fields = malloc(1);
@@ -202,6 +235,175 @@ int main()
 	// sort arrays (performance reasons)
 	qsort(h_fields, n_h, sizeof(vec3), compare_3);
 	qsort(v_fields, n_v, sizeof(vec3), compare_3);
+
+	/*
+	fvec3* combined = malloc(((2 * n_h) + (2 * n_v)) * sizeof(fvec3));
+	int n_combined = -1;
+	float scale = 0.01f;
+	//float scale = 20.f;
+	for(int i = 0; i < n_h; i++)
+	{
+		combined[++n_combined] = (fvec3){(float)h_fields[i].y * scale, (float)h_fields[i].x * scale, 0.5f};
+		combined[++n_combined] = (fvec3){(float)h_fields[i].z * scale, (float)h_fields[i].x * scale, 0.5f};
+	}
+	for(int i = 0; i < n_v; i++)
+	{
+		combined[++n_combined] = (fvec3){(float)v_fields[i].x * scale, (float)v_fields[i].y * scale, 0.5f};
+		combined[++n_combined] = (fvec3){(float)v_fields[i].x * scale, (float)v_fields[i].z * scale, 0.5f};
+	}
+
+	// draw them (testing)
+	GLuint vertex_shader = glCreateShader(GL_VERTEX_SHADER);
+	glShaderSource(vertex_shader, 1, &v_shader, NULL);
+	glCompileShader(vertex_shader);
+	GLenum err;
+		
+	GLuint fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
+	glShaderSource(fragment_shader, 1, &f_shader, NULL);
+	glCompileShader(fragment_shader);
+
+	const GLuint program = glCreateProgram();
+	glAttachShader(program, vertex_shader);
+	glAttachShader(program, fragment_shader);
+	glLinkProgram(program);
+
+	const GLint vpos_location = glGetAttribLocation(program, "vPos");
+	GLint loc = glGetUniformLocation(program, "uProj");
+	GLint color_loc = glGetUniformLocation(program, "uColor");
+
+	GLuint vertex_buffer;
+	glGenBuffers(1, &vertex_buffer);
+	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(fvec3) * (n_combined + 1), combined, GL_STATIC_DRAW);
+
+	GLuint vertex_array;
+	glGenVertexArrays(1, &vertex_array);
+	glBindVertexArray(vertex_array);
+
+	glEnableVertexAttribArray(vpos_location);
+	glVertexAttribPointer(vpos_location, 3, GL_FLOAT, GL_FALSE,
+						sizeof(fvec3), (void*) 0);
+
+	fvec3 square[4] = {(fvec3){0.0, 0.0, 0.0}, (fvec3){0.0, 0.0, 0.0}, (fvec3){0.0, 0.0, 0.0}, (fvec3){0.0, 0.0, 0.0}};
+	
+	GLuint b_2;
+	glGenBuffers(1, &b_2);
+	glBindBuffer(GL_ARRAY_BUFFER, b_2);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(fvec3) * 4, square, GL_DYNAMIC_DRAW);
+
+	GLuint a_2;
+	glGenVertexArrays(1, &a_2);
+	glBindVertexArray(a_2);
+
+	glEnableVertexAttribArray(vpos_location);
+	glVertexAttribPointer(vpos_location, 3, GL_FLOAT, GL_FALSE,
+						sizeof(fvec3), (void*) 0);
+		
+	glClearColor(0.f, 0.f, 0.f, 1.f);
+	int i = 0;
+	int j = 0;
+	double last_update = glfwGetTime();
+	double interval = 0.05; 
+	while(!glfwWindowShouldClose(window))
+	{
+		double now = glfwGetTime();
+		if (now - last_update >= interval) {
+			interval = 0.05;
+			last_update = now;
+			int width, height;
+			glfwGetFramebufferSize(window, &width, &height);
+
+			glViewport(0, 0, width, height);
+
+			float left = 0;
+			float right = width;
+			float bottom = 0;
+			float top = height;
+			float near = -1;
+			float far = 1;
+
+
+			float ortho[16] = {
+				2/(right-left), 0, 0, 0,
+				0, 2/(top-bottom), 0, 0,
+				0, 0, -2/(far-near), 0,
+				-(right+left)/(right-left),
+				-(top+bottom)/(top-bottom),
+				-(far+near)/(far-near),
+				1
+			};
+
+
+			glUseProgram(program);
+			glUniformMatrix4fv(loc, 1, GL_FALSE, ortho);
+			glUniform4f(color_loc, 1.0f, 1.0f, 1.0f, 1.0f);
+			 
+			// start draw call
+			glClear(GL_COLOR_BUFFER_BIT);
+			
+			glad_glBindVertexArray(vertex_array);
+
+			glDrawArrays(GL_LINES, 0, n_combined + 1);
+
+			////
+			
+			if(i != j)
+			{
+				int min_x = min(points[i].x, points[j].x);
+				int min_y = min(points[i].y, points[j].y);
+				int max_x = max(points[i].x, points[j].x);
+				int max_y = max(points[i].y, points[j].y);
+
+				// check if all points are valid first
+				if(is_inside(v_fields, n_v, h_fields, n_h, (vec2){min_x, min_y}) &&
+					is_inside(v_fields, n_v, h_fields, n_h, (vec2){max_x, min_y}) &&
+					is_inside(v_fields, n_v, h_fields, n_h, (vec2){min_x, max_y}) &&
+					is_inside(v_fields, n_v, h_fields, n_h, (vec2){max_x, max_y}))
+				{
+
+					if(!v_intersect(v_fields, n_v, (vec2){min_x, max_x}, min_y, max_y) &&
+						!v_intersect(h_fields, n_h, (vec2){min_y, max_y}, min_x, max_x))
+					{
+						// draw valid green square
+						glUniform4f(color_loc, 0.0f, 1.0f, 0.0f, 1.0f); 
+						interval = 1.0;
+						
+					} else 
+					{
+						glUniform4f(color_loc, 0.0f, 0.0f, 1.0f, 1.0f); 
+					}
+				} else
+				{
+					glUniform4f(color_loc, 1.0f, 0.0f, 0.0f, 1.0f); 
+				}
+
+				square[0] = (fvec3){(float)min_x * scale, (float)min_y * scale, 0.0};
+				square[1] = (fvec3){(float)max_x * scale, (float)min_y * scale, 0.0};
+				square[2] = (fvec3){(float)max_x * scale, (float)max_y * scale, 0.0};
+				square[3] = (fvec3){(float)min_x * scale, (float)max_y * scale, 0.0};
+			}
+
+			++j;
+			if(j >= n_points)
+			{
+				j = 0;
+				++i;
+			}
+
+			glBufferData(GL_ARRAY_BUFFER, sizeof(fvec3) * 4, square, GL_DYNAMIC_DRAW);
+			glad_glBindVertexArray(a_2);
+
+			glDrawArrays(GL_LINE_LOOP, 0, 4);
+			
+			glfwSwapBuffers(window);
+
+			GLenum err; while ((err = glGetError()) != GL_NO_ERROR) { printf("%d\n", err); }
+		}
+
+		glfwPollEvents();
+	}
+
+	*/
 	
 	// basic bruteforce approach
 	t_area* area_field = malloc(1);
@@ -235,7 +437,7 @@ int main()
 				//printf("	Valid corners!\n");
 				// there should be no v_fields between min_x and max_x
 				// and there should be no h_fields between min_y and max_y
-				if(!v_intersect(v_fields, n_v, (vec2){min_x, max_x}, min_y, max_y) ||
+				if(!v_intersect(v_fields, n_v, (vec2){min_x, max_x}, min_y, max_y) &&
 					!v_intersect(h_fields, n_h, (vec2){min_y, max_y}, min_x, max_x))
 				{
 					//printf("	Valid sweep!\n");
